@@ -40,6 +40,8 @@ const MOCK_USERS = [
 
   {
     id: 4,
+    employeeCode: "EMP004",
+    asmId: "EMP003",
     username: "nisha.se",
     password: "Elexo@123",
     role: ROLES.SALES_EXECUTIVE,
@@ -52,6 +54,8 @@ const MOCK_USERS = [
 
   {
     id: 5,
+    employeeCode: "EMP005",
+    asmId: "EMP003",
     username: "niyati.se",
     password: "Elexo@123",
     role: ROLES.SALES_EXECUTIVE,

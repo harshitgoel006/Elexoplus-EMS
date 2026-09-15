@@ -16,7 +16,44 @@ const set = (key, value) => mockStore.set(`sales:${key}`, value);
 
 const dashboard = () => {
   const targets = get("targets", targetSeed);
-  return { summary: { target_value: targets.reduce((sum, item) => sum + Number(item.target_value || 0), 0), achieved_value: targets.reduce((sum, item) => sum + Number(item.achieved_value || 0), 0) } };
+  const orders = get("orders", orderSeed);
+  const totalTarget = targets.reduce((sum, item) => sum + Number(item.target_value || 0), 0);
+  const totalAchievement = targets.reduce((sum, item) => sum + Number(item.achieved_value || 0), 0);
+  const totalSales = orders.reduce((sum, item) => sum + Number(item.order_value ?? item.value ?? 0), 0);
+  const executives = new Set([
+    ...targets.map((item) => item.employee_name).filter(Boolean),
+    ...orders.map((item) => item.seName).filter(Boolean),
+  ]);
+  const regionTotals = orders.reduce((result, item) => {
+    const name = item.region || item.territory || "Unassigned";
+    result[name] = (result[name] || 0) + Number(item.order_value ?? item.value ?? 0);
+    return result;
+  }, {});
+  const regionTotal = Object.values(regionTotals).reduce((sum, value) => sum + value, 0);
+  const trend = orders.reduce((result, item) => {
+    const period = item.period || item.orderDate?.match(/[A-Za-z]+/)?.[0] || "Current";
+    const existing = result.find((row) => row.period === period);
+    const value = Number(item.order_value ?? item.value ?? 0);
+    if (existing) existing.sales += value;
+    else result.push({ period, sales: value });
+    return result;
+  }, []);
+
+  return {
+    summary: {
+      target_value: totalTarget,
+      achieved_value: totalAchievement,
+      total_asm: 1,
+      total_se: executives.size,
+      total_sales: totalSales,
+      target_achievement: totalTarget ? Math.round((totalAchievement / totalTarget) * 100) : 0,
+    },
+    trend,
+    regions: Object.entries(regionTotals).map(([name, value]) => ({
+      name,
+      value: regionTotal ? Math.round((value / regionTotal) * 100) : 0,
+    })),
+  };
 };
 
 export const salesApi = {

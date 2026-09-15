@@ -99,7 +99,7 @@ import client from "../../../api/client";
 import MOCK_USERS from "../mock/mockUsers";
 
 // Keep this false in normal environments. Set it to true only for isolated UI demos.
-const USE_MOCK_AUTH = false;
+const USE_MOCK_AUTH = true;
 
 const login = async ({ email, password }) => {
   // ==============================
