@@ -23,8 +23,8 @@ const policyDefaults = {
   status: "Active",
 };
 
-const policySeed = initialLeavePolicies.map((policy) => ({ ...policyDefaults, ...policy }));
-const requestSeed = [
+export const leavePolicySeed = initialLeavePolicies.map((policy) => ({ ...policyDefaults, ...policy }));
+export const leaveRequestSeed = [
   ...LeaveApplicationsData.map((request) => ({ ...request, document: "Not Attached" })),
   ...leaveHistory.map((request) => ({
     ...request,
@@ -41,8 +41,8 @@ const requestSeed = [
   })),
 ];
 
-const policies = () => mockStore.get("leave:policies", policySeed);
-const requests = () => mockStore.get("leave:requests", requestSeed);
+const policies = () => mockStore.get("leave:policies", leavePolicySeed);
+const requests = () => mockStore.get("leave:requests", leaveRequestSeed);
 const savePolicies = (value) => mockStore.set("leave:policies", value);
 const saveRequests = (value) => mockStore.set("leave:requests", value);
 

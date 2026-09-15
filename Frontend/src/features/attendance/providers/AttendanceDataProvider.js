@@ -18,6 +18,7 @@ import {
   ATTENDANCE_EMPLOYEES,
   ATTENDANCE_RECORDS,
 } from "../mock/attendanceRecords";
+import employeeMasterSeed from "../../employee-master/mock/employees";
 import { CORRECTION_REQUESTS } from "../mock/corrections";
 import { ATTENDANCE_NOTIFICATIONS } from "../mock/notifications";
 import { CORRECTION_STATUS } from "../config/attendanceStatus";
@@ -30,7 +31,18 @@ const wait = (data, ms = LATENCY_MS) =>
 
 // In-memory stores. Cloned from seed data so runtime mutations
 // (approve/reject/submit) don't leak back into the seed arrays.
-const employees = () => mockStore.get("attendance:employees", ATTENDANCE_EMPLOYEES);
+// Employee Master owns the canonical employee directory. Attendance only
+// adapts it to the fields its UI needs, so an employee edit/status change is
+// visible everywhere after the shared store notifies the page.
+const employees = () => mockStore.get("employees", employeeMasterSeed).map((employee) => ({
+  ...employee,
+  id: employee.id,
+  name: employee.name,
+  department: employee.department || "Unassigned",
+  branch: employee.branch || employee.location || employee.workLocation || "Head Office",
+  designation: employee.designation || employee.role || "Employee",
+  status: employee.status || "Active",
+}));
 const records = () => mockStore.get("attendance:records", ATTENDANCE_RECORDS);
 const corrections = () => mockStore.get("attendance:corrections", CORRECTION_REQUESTS);
 const notifications = () => mockStore.get("attendance:notifications", ATTENDANCE_NOTIFICATIONS);

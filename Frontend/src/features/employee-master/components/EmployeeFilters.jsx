@@ -1,6 +1,4 @@
-import { departments } from "../config/departments";
-import { roles } from "../config/roles";
-import { statusOptions } from "../config/status";
+import { departmentFilterOptions, designationFilterOptions, statusFilterOptions } from "../services/employeeOptions";
 import { RotateCcw } from "lucide-react";
 import { ChevronDown } from "lucide-react";
 import CustomSelect from "../components/ui/CustomSelect";
@@ -20,7 +18,7 @@ const EmployeeFilters = ({
             <div className="relative">
                 <CustomSelect
                     placeholder="Department"
-                    options={departments}
+                    options={departmentFilterOptions()}
                     value={department}
                     onValueChange={setDepartment}
                 />
@@ -34,7 +32,7 @@ const EmployeeFilters = ({
             <div className="relative">
                 <CustomSelect
                     placeholder="Role"
-                    options={roles}
+                    options={designationFilterOptions()}
                     value={role}
                     onValueChange={setRole}
                 />
@@ -47,7 +45,7 @@ const EmployeeFilters = ({
             <div className="relative">
                 <CustomSelect
                     placeholder="All Status"
-                    options={statusOptions}
+                    options={statusFilterOptions()}
                     value={status}
                     onValueChange={setStatus}
                 />

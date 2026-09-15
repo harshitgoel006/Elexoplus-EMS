@@ -4,9 +4,13 @@ import { mockVisitsData, seMockData } from "../mock/seMockData";
 import { mockStore } from "../../../mocks/appMockStore";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
-const leadSeed = clone(mockAsmDashboardData.leadsPipeline);
-const orderSeed = clone(mockOrdersData);
-const targetSeed = [{ id: "target-se-1", target_id: "target-se-1", status: "Active", target_value: seMockData.topMetrics.target, achieved_value: seMockData.topMetrics.achievement, employee_name: seMockData.profile.name }];
+export const salesLeadSeed = clone(mockAsmDashboardData.leadsPipeline);
+export const salesOrderSeed = clone(mockOrdersData);
+export const salesTargetSeed = [{ id: "target-se-1", target_id: "target-se-1", status: "Active", target_value: seMockData.topMetrics.target, achieved_value: seMockData.topMetrics.achievement, employee_name: seMockData.profile.name }];
+export const salesVisitSeed = clone(mockVisitsData);
+const leadSeed = salesLeadSeed;
+const orderSeed = salesOrderSeed;
+const targetSeed = salesTargetSeed;
 const get = (key, seed) => mockStore.get(`sales:${key}`, seed);
 const set = (key, value) => mockStore.set(`sales:${key}`, value);
 
@@ -28,7 +32,7 @@ export const salesApi = {
   targets: async () => clone(get("targets", targetSeed)),
   createTarget: async (payload) => { const item = { id: `target-${Date.now()}`, target_id: `target-${Date.now()}`, status: "Active", ...payload }; set("targets", [item, ...get("targets", targetSeed)]); return clone(item); },
   updateTarget: async (id, payload) => { set("targets", get("targets", targetSeed).map((item) => String(item.id || item.target_id) === String(id) ? { ...item, ...payload } : item)); return { success: true }; },
-  visits: async () => clone(get("visits", mockVisitsData)),
+  visits: async () => clone(get("visits", salesVisitSeed)),
   expenses: async () => clone(get("expenses", seMockData.expenses)),
   dailyReports: async () => clone(get("dailyReports", seMockData.darLogs)),
   updateDailyReportFeedback: async () => ({ success: true }),

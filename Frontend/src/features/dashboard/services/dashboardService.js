@@ -6,6 +6,10 @@ import DASHBOARD_PERMISSIONS from "../config/dashboardPermissions";
 import PENDING_TASK_DATA from "../config/pendingTaskData";
 import RECENT_ACTIVITY_DATA from "../config/recentActivityData";
 import analyticsMock from "../mock/analyticsMock";
+import initialEmployees from "../../employee-master/mock/employees";
+import { leaveRequestSeed } from "../../leave/services/leaveService";
+import { salesOrderSeed, salesTargetSeed, salesVisitSeed } from "../../sales/services/salesApi";
+import { mockStore } from "../../../mocks/appMockStore";
 
 const ANALYTICS_KEYS = {
   ADMIN: ["revenue_trend", "target_achievement", "department_distribution"],
@@ -33,8 +37,47 @@ const formatMetric = ({ value, format }) => {
   return format === "percentage" ? `${number}%` : String(number);
 };
 
+const number = (value) => Number(String(value ?? 0).replace(/[^0-9.-]/g, "")) || 0;
+const money = (value) => new Intl.NumberFormat("en-IN", {
+  style: "currency", currency: "INR", maximumFractionDigits: 0,
+}).format(number(value));
+
+const liveKpis = (role) => {
+  const employees = mockStore.get("employees", initialEmployees);
+  const leaves = mockStore.get("leave:requests", leaveRequestSeed);
+  const orders = mockStore.get("sales:orders", salesOrderSeed);
+  const targets = mockStore.get("sales:targets", salesTargetSeed);
+  const visits = mockStore.get("sales:visits", salesVisitSeed);
+  const activeEmployees = employees.filter((employee) => String(employee.status || "Active").toLowerCase() === "active");
+  const salesEmployees = activeEmployees.filter((employee) => /sales/i.test(`${employee.department} ${employee.role} ${employee.designation}`));
+  const orderValue = orders.reduce((total, order) => total + number(order.value ?? order.order_value), 0);
+  const payrollTotal = activeEmployees.reduce((total, employee) => total + number(employee.netSalary || employee.grossSalary), 0);
+  const targetValue = targets.reduce((total, target) => total + number(target.target_value), 0);
+  const achievedValue = targets.reduce((total, target) => total + number(target.achieved_value), 0);
+  const targetAchievement = targetValue ? Math.round((achievedValue / targetValue) * 100) : 0;
+  const pendingLeaves = leaves.filter((leave) => leave.status === "Pending").length;
+  const pendingDocuments = employees.reduce((total, employee) => total + (employee.documents || [])
+    .filter((document) => String(document.status || "").toLowerCase() !== "uploaded").length, 0);
+
+  if (role === "ADMIN") return [activeEmployees.length, money(payrollTotal), money(orderValue), pendingLeaves];
+  if (role === "HR") return [
+    activeEmployees.length,
+    employees.filter((employee) => String(employee.joiningDate || "").includes(String(new Date().getFullYear()))).length,
+    pendingLeaves,
+    pendingDocuments,
+  ];
+  if (role === "ASM") return [salesEmployees.length, `${targetAchievement}%`, money(orderValue), visits.filter((visit) => String(visit.status || "").toLowerCase() === "completed").length];
+  return [
+    visits.filter((visit) => String(visit.status || "").toLowerCase() === "completed").length,
+    orders.length,
+    `${targetAchievement}%`,
+    money(Math.max(0, achievedValue - targetValue * 0.7) * 0.05),
+  ];
+};
+
 const buildDashboard = (role) => {
   const metrics = KPI_DATA[role] || [];
+  const liveValues = liveKpis(role);
 
   return {
     permissions: DASHBOARD_PERMISSIONS[role],
@@ -42,7 +85,7 @@ const buildDashboard = (role) => {
     kpis: metrics.map((metric, index) => ({
       ...(KPI_DATA[role] || [])[index],
       title: metric.title,
-      value: formatMetric(metric),
+      value: liveValues[index] === undefined ? formatMetric(metric) : String(liveValues[index]),
       subtitle: "Current period",
     })),
     analytics: (ANALYTICS_DATA[role] || []).map((item) => ({

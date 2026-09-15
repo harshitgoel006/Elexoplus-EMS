@@ -3,10 +3,12 @@ import { BriefcaseBusiness } from "lucide-react";
 import FormInput from "../FormInput";
 import FormSelect from "../FormSelect";
 
-import { departments } from "../../../config/departments";
-import { roles } from "../../../config/roles";
-import { employmentTypes } from "../../../config/employmentTypes";
-import { employeeStatus } from "../../../config/employeeStatus";
+import {
+  employeeDepartments,
+  employeeDesignations,
+  employeeEmploymentTypes,
+  employeeStatuses,
+} from "../../../services/employeeOptions";
 
 const EmploymentSection = ({
   formData,
@@ -61,7 +63,7 @@ const EmploymentSection = ({
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <FormSelect
           label="Department"
-          options={departments}
+          options={employeeDepartments()}
           value={formData.department}
            required
           error={errors.department}
@@ -82,7 +84,7 @@ const EmploymentSection = ({
         />
         <FormSelect
           label="Designation"
-          options={roles}
+          options={employeeDesignations()}
           value={formData.designation}
           onChange={(value) => { setFormData((prev) => ({
               ...prev,
@@ -114,7 +116,7 @@ const EmploymentSection = ({
         />
         <FormSelect
           label="Employment Type"
-          options={employmentTypes}
+          options={employeeEmploymentTypes()}
           value={formData.employmentType}
           required
           error={errors.employmentType}
@@ -144,7 +146,7 @@ const EmploymentSection = ({
         />
         <FormSelect
           label="Employee Status"
-          options={employeeStatus}
+          options={employeeStatuses()}
           value={formData.status}
           onChange={(value) => {
             setFormData((prev) => ({ ...prev, status: value }));

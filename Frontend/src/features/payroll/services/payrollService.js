@@ -13,6 +13,7 @@ import { asmPayrollMock } from "../mock/asmPayrollMock";
 import { employeePayrollMock } from "../mock/employeePayrollMock";
 import { hrPayrollMock } from "../mock/hrPayrollMock";
 import { mockStore } from "../../../mocks/appMockStore";
+import employeeMasterSeed from "../../employee-master/mock/employees";
 
 // Frontend-first Payroll store. The public contract mirrors the old API
 // service, while state intentionally stays in memory for the current tab.
@@ -70,6 +71,26 @@ let transfers = mockStore.get("payroll:transfers", bankTransferBatchMock.map((tr
 let period = mockStore.get("payroll:period", { payroll_period_id: "PERIOD-2026-07", payroll_month: 7, payroll_year: 2026, status: "Draft" });
 const save = (key, value) => { mockStore.set(`payroll:${key}`, value); return value; };
 
+const syncDirectoryWithEmployees = () => {
+  const employees = mockStore.get("employees", employeeMasterSeed);
+  const next = employees.map((employee) => {
+    const previous = directory.find((item) => String(item.id) === String(employee.id)) || {};
+    return {
+      ...previous,
+      ...employee,
+      id: employee.id,
+      employeeId: employee.id,
+      empId: employee.id,
+      department: employee.department || previous.department || "Unassigned",
+      role: employee.role || employee.designation || previous.role || "Employee",
+      status: employee.status || previous.status || "Active",
+      isHold: Boolean(previous.isHold),
+    };
+  });
+  directory = save("directory", next);
+  return directory;
+};
+
 const personalFor = (role) => {
   if (role === "ASM") return {
     stats: copy(asmPayrollMock.payroll.stats),
@@ -118,13 +139,14 @@ const getPayrollDashboardData = async (inputRole) => {
   const manager = role === "ADMIN" || role === "HR";
   const isAsm = role === "ASM";
   const payrollRecords = copy(records);
+  const employeeDirectory = syncDirectoryWithEmployees();
   const dashboard = {
     permissions: getPayrollPermissions(role),
     metrics: role === "ADMIN" ? copy(ADMIN_STATS_MOCK) : role === "HR" ? copy(hrPayrollMock.statsData) : [],
     records: payrollRecords,
     summary: copy(mockPayrollSummary),
     structures: manager ? copy(structures) : [],
-    directory: manager ? copy(directory) : [],
+    directory: manager ? copy(employeeDirectory) : [],
     salaryRevisions: manager ? copy(revisions) : [],
     lopCases: manager ? copy(lopCases) : [],
     reimbursements: role === "ASM" ? copy(asmPayrollMock.expenseReimbursements) : copy(reimbursements),
@@ -162,7 +184,7 @@ export const payrollService = {
     const structure = findOrFail(structures, id, "Salary structure");
     return { structure: copy(structure), assignments: structure.assignedEmployees.map((employee_id) => ({ employee_id })) };
   },
-  getEmployees: async () => ({ data: copy(directory) }),
+  getEmployees: async () => ({ data: copy(syncDirectoryWithEmployees()) }),
   getPayrollRecords: async () => ({ data: copy(records), summary: copy(mockPayrollSummary) }),
   getPayrollDetail: async (id) => {
     const payroll = findOrFail(records, id, "Payroll record");
@@ -194,7 +216,7 @@ export const payrollService = {
   dispatchBankTransfer: async (payrollId, transactionReference = "") => { transfers = save("transfers", transfers.map((transfer) => String(transfer.payrollId) === String(payrollId) ? { ...transfer, transferStatus: "Dispatched", transactionReference } : transfer)); return { success: true }; },
   freezeAttendance: async (id) => { if (id && id !== period.payroll_period_id) throw new Error("Payroll period was not found."); if (period.status !== "Draft") throw new Error("Attendance has already been frozen."); period = save("period", { ...period, status: "Processing" }); return copy(period); },
   submitToFinance: async (id) => { if (id && id !== period.payroll_period_id) throw new Error("Payroll period was not found."); if (period.status !== "Processing") throw new Error("Freeze attendance before submitting to finance."); period = save("period", { ...period, status: "Verification" }); return copy(period); },
-  updateSalaryHold: async ({ employeeId, empId, isHold, reason = "", notes = "" }) => { const id = employeeId || empId; findOrFail(directory, id, "Employee"); directory = save("directory", directory.map((employee) => String(employee.id) === String(id) ? { ...employee, isHold: Boolean(isHold), status: isHold ? "On Hold" : "Active", holdReason: reason, holdNotes: notes } : employee)); return { success: true }; },
+  updateSalaryHold: async ({ employeeId, empId, isHold, reason = "", notes = "" }) => { const id = employeeId || empId; syncDirectoryWithEmployees(); findOrFail(directory, id, "Employee"); directory = save("directory", directory.map((employee) => String(employee.id) === String(id) ? { ...employee, isHold: Boolean(isHold), status: isHold ? "On Hold" : "Active", holdReason: reason, holdNotes: notes } : employee)); mockStore.set("employees", mockStore.get("employees", employeeMasterSeed).map((employee) => String(employee.id) === String(id) ? { ...employee, status: isHold ? "On Hold" : "Active" } : employee)); return { success: true }; },
   saveSalaryStructure: async (data) => {
     if (!data.name?.trim() || !data.code?.trim()) throw new Error("Structure name and code are required.");
     const normalized = { ...data, id: data.id || `STR-${Date.now()}`, code: data.code.trim().toUpperCase(), status: data.status || "Active", assignedEmployees: data.assignedEmployees || [], assignedCount: data.assignedCount || 0, allowances: { specialAllowance: number(data.specialAllowance), medicalAllowance: number(data.medicalAllowance), conveyanceAllowance: number(data.conveyanceAllowance) }, bonus: { type: data.bonusType, value: number(data.bonusValue), frequency: data.bonusFrequency } };
