@@ -22,8 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-foreach (glob(__DIR__ . '/../Modules/*/Routes/*.php') as $file) {
-    require $file;
+
+// The frontend owns all business-module demo state through its central mock
+// store. The API is intentionally limited to identity/session functions and
+// the authenticated password-change flow.
+$activeRouteModules = ['Authentication', 'Profile'];
+foreach ($activeRouteModules as $module) {
+    foreach (glob(__DIR__ . "/../Modules/{$module}/Routes/*.php") as $file) {
+        require $file;
+    }
 }
 
 Router::dispatch();

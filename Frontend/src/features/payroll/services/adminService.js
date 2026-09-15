@@ -1,4 +1,4 @@
-import { 
+import {
   ADMIN_STATS_MOCK, 
   SALARY_STRUCTURES_MOCK, 
   EMPLOYEES_MOCK,
@@ -9,6 +9,7 @@ import {
   payrollReportsList,
   bankTransferBatchMock
 } from "../mock/adminMock"; 
+import payrollService from "./payrollService";
 
 // Local memory stores for mock mutation with safe defaults
 let localStructures = [...SALARY_STRUCTURES_MOCK];
@@ -121,5 +122,26 @@ export const adminService = {
     return new Promise((resolve) => setTimeout(() => resolve({ data: localBankTransfers }), 150));
   },
 };
+
+// Compatibility for older admin-only hooks: these methods now point at the
+// same mock-store-backed payroll service used by PayrollManagement.
+Object.assign(adminService, {
+  getDashboardStats: async () => (await payrollService.getPayrollDashboardData("ADMIN")).metrics,
+  getSalaryStructures: payrollService.getSalaryStructures,
+  getEmployees: payrollService.getEmployees,
+  saveSalaryStructure: payrollService.saveSalaryStructure,
+  assignStructureToEmployees: payrollService.assignStructureToEmployees,
+  deleteSalaryStructure: payrollService.deleteSalaryStructure,
+  getPayrollSummary: payrollService.getPayrollSummary,
+  getPayrollRecords: payrollService.getPayrollRecords,
+  processPayroll: payrollService.processPayroll,
+  getSalaryRevisions: payrollService.getSalaryRevisions,
+  approveSalaryRevision: payrollService.approveSalaryRevision,
+  rejectSalaryRevision: payrollService.rejectSalaryRevision,
+  getLopCases: payrollService.getLopCases,
+  resolveLopCase: payrollService.resolveLopCase,
+  getPayrollReports: payrollService.getPayrollReports,
+  getBankTransfers: payrollService.getBankTransfers,
+});
 
 export default adminService;

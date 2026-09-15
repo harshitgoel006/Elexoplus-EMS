@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getDashboardData } from "../services/dashboardService";
+import { mockStore } from "../../../mocks/appMockStore";
 
 const useDashboard = (role) => {
   const [dashboard, setDashboard] = useState(null);
@@ -23,6 +24,10 @@ const useDashboard = (role) => {
     // Defer the state-changing refresh until after this effect completes.
     void Promise.resolve().then(refresh);
   }, [refresh]);
+
+  // Dashboard is a read model of the central frontend mock store. Re-read it
+  // after any business action so cards/tasks never retain a stale snapshot.
+  useEffect(() => mockStore.subscribe(() => { void refresh(); }), [refresh]);
 
   return { dashboard, loading, error, refresh };
 };

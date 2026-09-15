@@ -12,7 +12,7 @@ export const usePayrollVerification = () => {
 
   const loadPendingPayroll = async () => {
     try {
-      const response = await adminService.getPayrollRecords();
+      const response = await payrollService.getPayrollRecords();
       const pending = response.data.filter(
         (rec) => rec.status.toLowerCase() !== "processed"
       );
@@ -24,7 +24,7 @@ export const usePayrollVerification = () => {
 
   const handleFinalProcess = async (payrollId) => {
     try {
-      await adminService.processPayroll(payrollId);
+      await payrollService.processPayroll(payrollId);
       setPendingRecords((prev) => prev.filter((rec) => rec.id !== payrollId));
       setSelectedRecord(null);
     } catch (error) {

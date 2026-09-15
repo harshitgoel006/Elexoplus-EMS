@@ -1,84 +1,128 @@
-import client from "../../../api/client";
 import authStorage from "../../auth/utils/authStorage";
+import { AttendanceDataProvider } from "../providers/AttendanceDataProvider";
+import { ATTENDANCE_STATUS, CORRECTION_STATUS } from "../config/attendanceStatus";
+import { mockStore } from "../../../mocks/appMockStore";
 
-let cache = null;
-let pending = null;
-let cacheToken = null;
-let pendingToken = null;
-const errorMessage = (error, fallback) => error?.response?.data?.message || error?.message || fallback;
+// Attendance is deliberately frontend-first for the demo build. The provider
+// owns mutable in-memory data; the public service contract stays API-shaped so
+// existing pages can later be reconnected without component rewrites.
+const currentUser = () => authStorage.getCurrentUser() || {};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const normalize = (value) => String(value || "").trim().toLowerCase();
+const todayStates = () => mockStore.get("attendance:todayStates", {});
 
-const getOverview = async ({ force = false } = {}) => {
-  // The module is kept alive during logout/login in the SPA. Never let a
-  // previous user's cached attendance become visible to the next user.
-  const token = authStorage.getToken();
-  if (cacheToken !== token) {
-    cache = null;
-    cacheToken = token;
-  }
-  if (!force && cache) return cache;
-  if (!force && pending && pendingToken === token) return pending;
-  pending = client.get("/attendance/overview").then(({ data }) => {
-    if (!data?.success) throw new Error(data?.message || "Unable to load attendance.");
-    // A late response from a logged-out user must not populate the new
-    // session's cache.
-    if (authStorage.getToken() === token) cache = data.data;
-    return data.data;
-  }).finally(() => {
-    if (pendingToken === token) {
-      pending = null;
-      pendingToken = null;
-    }
-  });
-  pendingToken = token;
-  return pending;
+const resolveCurrentEmployee = async () => {
+  const user = currentUser();
+  const employees = await AttendanceDataProvider.fetchEmployees();
+  return employees.find((employee) =>
+    normalize(employee.name) === normalize(user.name)
+    || normalize(employee.email) === normalize(user.email)
+    || normalize(employee.id) === normalize(user.employeeCode || user.employee_code),
+  ) || employees.find((employee) => employee.id === "EMP001") || null;
 };
-const refresh = () => getOverview({ force: true });
-const mutate = async (request, fallback) => {
-  try {
-    const { data } = await request;
-    if (!data?.success) throw new Error(data?.message || fallback);
-    await refresh();
-    return data;
-  } catch (error) { throw new Error(errorMessage(error, fallback)); }
+
+const getTodayState = async () => {
+  const employee = await resolveCurrentEmployee();
+  if (!employee) return null;
+  const key = employee.id;
+  if (todayStates()[key]) return clone(todayStates()[key]);
+  return {
+    id: `TODAY-${key}`,
+    employeeId: key,
+    employeeName: employee.name,
+    checkIn: null,
+    checkOut: null,
+    breakMinutes: 0,
+    breakStartedAt: null,
+    status: ATTENDANCE_STATUS.PRESENT,
+  };
 };
-const records = async () => (await getOverview()).records || [];
-const corrections = async () => (await getOverview()).corrections || [];
+
+const saveTodayState = async (next) => {
+  mockStore.set("attendance:todayStates", { ...todayStates(), [next.employeeId]: next });
+  return clone(next);
+};
+
+const getOverview = async () => {
+  const [employees, allRecords, todayRecords, allCorrections] = await Promise.all([
+    AttendanceDataProvider.fetchEmployees(),
+    AttendanceDataProvider.fetchAllRecords(),
+    AttendanceDataProvider.fetchTodayRecords(),
+    AttendanceDataProvider.fetchCorrections(),
+  ]);
+  return {
+    currentEmployee: await resolveCurrentEmployee(),
+    employees,
+    records: allRecords,
+    todayRecords,
+    corrections: allCorrections,
+  };
+};
+
+const refresh = async () => getOverview();
+const records = async () => AttendanceDataProvider.fetchAllRecords();
+const corrections = async () => AttendanceDataProvider.fetchCorrections();
 
 export const attendanceService = {
   getOverview,
   refresh,
-  getEmployees: async () => (await getOverview()).employees || [],
-  getEmployeeById: async (id) => ((await getOverview()).employees || []).find((e) => e.id === id) || null,
-  getEmployeeByName: async (name) => ((await getOverview()).employees || []).find((e) => e.name === name) || null,
-  getDepartments: async () => [...new Set(((await getOverview()).employees || []).map((e) => e.department))],
-  getBranches: async () => [...new Set(((await getOverview()).employees || []).map((e) => e.branch))],
+  getEmployees: () => AttendanceDataProvider.fetchEmployees(),
+  getEmployeeById: (id) => AttendanceDataProvider.fetchEmployeeById(id),
+  getEmployeeByName: (name) => AttendanceDataProvider.fetchEmployeeByName(name),
+  getDepartments: () => AttendanceDataProvider.fetchDepartments(),
+  getBranches: () => AttendanceDataProvider.fetchBranches(),
   getAttendanceRecords: records,
   getAllRecords: records,
   getEmployeeAttendance: async (id) => (await records()).filter((r) => r.employeeId === id),
   getRecordsForEmployee: async (id) => (await records()).filter((r) => r.employeeId === id),
-  getTodayAttendance: async () => (await getOverview()).todayRecords || [],
-  getTodayRecords: async () => (await getOverview()).todayRecords || [],
+  getTodayAttendance: () => AttendanceDataProvider.fetchTodayRecords(),
+  getTodayRecords: () => AttendanceDataProvider.fetchTodayRecords(),
   getTeamAttendance: async (ids) => (await records()).filter((r) => ids.includes(r.employeeId)),
   getRecordsForTeam: async (ids) => (await records()).filter((r) => ids.includes(r.employeeId)),
   getCorrections: corrections,
   getEmployeeCorrections: async (id) => (await corrections()).filter((r) => r.employeeId === id),
   getCorrectionsForEmployee: async (id) => (await corrections()).filter((r) => r.employeeId === id),
-  getNotifications: async () => {
-    const { data } = await client.get("/attendance/notifications");
-    if (!data?.success) throw new Error(data?.message || "Unable to load attendance notifications.");
-    return data.notifications || [];
+  getNotifications: () => AttendanceDataProvider.fetchNotifications(),
+  getTodayState,
+  checkIn: async () => {
+    const state = await getTodayState();
+    if (!state) throw new Error("Employee profile is unavailable.");
+    if (state.checkIn) throw new Error("You have already checked in today.");
+    return saveTodayState({ ...state, checkIn: new Date().toISOString(), status: ATTENDANCE_STATUS.PRESENT });
   },
-  getTodayState: async () => {
-    const { data } = await client.get("/attendance/me/today");
-    if (!data?.success) throw new Error(data?.message || "Unable to load today's attendance.");
-    return data.record;
+  checkOut: async () => {
+    const state = await getTodayState();
+    if (!state?.checkIn) throw new Error("Check in before checking out.");
+    if (state.breakStartedAt) throw new Error("End your break before checking out.");
+    if (state.checkOut) throw new Error("You have already checked out today.");
+    return saveTodayState({ ...state, checkOut: new Date().toISOString() });
   },
-  checkIn: async () => (await mutate(client.post("/attendance/me/check-in"), "Unable to check in.")).record,
-  checkOut: async () => (await mutate(client.post("/attendance/me/check-out"), "Unable to check out.")).record,
-  startBreak: async () => (await mutate(client.post("/attendance/me/break/start"), "Unable to start break.")).record,
-  endBreak: async () => (await mutate(client.post("/attendance/me/break/end"), "Unable to end break.")).record,
-  updateRecord: async (id, payload) => (await mutate(client.patch(`/attendance/records/${id}`, payload), "Unable to update attendance record.")).record,
-  submitCorrection: async ({ form }) => (await mutate(client.post("/attendance/corrections", { correction_date: form.date, requested_check_in: form.checkIn || null, requested_check_out: form.checkOut || null, reason: form.reason }), "Unable to submit correction request.")).correction,
-  approveCorrection: async (id, remarks = "") => (await mutate(client.post(`/attendance/corrections/${id}/decision`, { decision: "Approved", remarks }), "Unable to approve correction.")).correction,
-  rejectCorrection: async (id, remarks = "") => (await mutate(client.post(`/attendance/corrections/${id}/decision`, { decision: "Rejected", remarks }), "Unable to reject correction.")).correction,
+  startBreak: async () => {
+    const state = await getTodayState();
+    if (!state?.checkIn || state.checkOut) throw new Error("An active check-in is required to start a break.");
+    if (state.breakStartedAt) throw new Error("A break is already in progress.");
+    return saveTodayState({ ...state, breakStartedAt: new Date().toISOString() });
+  },
+  endBreak: async () => {
+    const state = await getTodayState();
+    if (!state?.breakStartedAt) throw new Error("No active break was found.");
+    const elapsed = Math.max(0, Math.round((Date.now() - new Date(state.breakStartedAt).getTime()) / 60000));
+    return saveTodayState({ ...state, breakStartedAt: null, breakMinutes: state.breakMinutes + elapsed });
+  },
+  updateRecord: async (id, payload) => {
+    const updated = await AttendanceDataProvider.updateAttendanceRecord(id, payload);
+    if (!updated) throw new Error("Attendance record was not found.");
+    return updated;
+  },
+  submitCorrection: ({ employee, form }) => AttendanceDataProvider.createCorrection({ employee, form }),
+  approveCorrection: async (id) => {
+    const updated = await AttendanceDataProvider.updateCorrectionStatus(id, CORRECTION_STATUS.APPROVED);
+    if (!updated) throw new Error("Correction request was not found.");
+    return updated;
+  },
+  rejectCorrection: async (id) => {
+    const updated = await AttendanceDataProvider.updateCorrectionStatus(id, CORRECTION_STATUS.REJECTED);
+    if (!updated) throw new Error("Correction request was not found.");
+    return updated;
+  },
 };

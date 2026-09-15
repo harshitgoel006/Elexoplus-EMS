@@ -3,20 +3,11 @@
 $composerAutoload = __DIR__ . '/../../../vendor/autoload.php';
 require file_exists($composerAutoload) ? $composerAutoload : __DIR__ . '/../../../bootstrap/autoload.php';
 
-// These migrations match the UUID-based Employee and Authentication schemas
-// used by the application. They are intentionally executed in FK order.
+// The lightweight payroll API only reads issued payslips. These schemas are
+// retained because payslip downloads join payroll records and payroll periods.
 $files = [
-    'salary_structures.sql' => 'salary_structures',
-    'employee_salary.sql' => 'employee_salary_structures',
     'payroll.sql' => 'payrolls',
-    'incentives.sql' => 'incentives',
-    'deductions.sql' => 'deductions',
     'payslips.sql' => 'payslips',
-    'salary_revisions.sql' => 'salary_revisions',
-    'lop_cases.sql' => 'lop_cases',
-    'payroll_holds.sql' => 'payroll_holds',
-    'expense_reimbursements.sql' => 'expense_reimbursements',
-    'payroll_bank_transfers.sql' => 'payroll_bank_transfers',
 ];
 foreach ($files as $file => $table) {
     $exists = \Core\Database::connection()->prepare('SHOW TABLES LIKE ?');
@@ -36,18 +27,4 @@ foreach ($files as $file => $table) {
     echo "Applied: $file\n";
 }
 
-// Earlier Payroll exports did not include this column, although the API uses
-// it to deactivate templates and to select a valid structure for a run.
-$columns = \Core\Database::connection()->query('SHOW COLUMNS FROM salary_structures')->fetchAll(\PDO::FETCH_COLUMN);
-if (!in_array('status', $columns, true)) {
-    \Core\Database::connection()->exec("ALTER TABLE salary_structures ADD COLUMN status ENUM('Active','Inactive') NOT NULL DEFAULT 'Active' AFTER bonus_frequency");
-    echo "Applied compatibility update: salary_structures.status\n";
-}
-
-$indexes = \Core\Database::connection()->query('SHOW INDEX FROM employee_salary_structures')->fetchAll(\PDO::FETCH_ASSOC);
-$indexNames = array_column($indexes, 'Key_name');
-if (!in_array('uq_employee_salary_structure_effective_from', $indexNames, true)) {
-    \Core\Database::connection()->exec('ALTER TABLE employee_salary_structures ADD UNIQUE INDEX uq_employee_salary_structure_effective_from (employee_id, effective_from)');
-    echo "Applied compatibility update: employee salary structure effective-date uniqueness\n";
-}
 echo "Payroll schema is ready.\n";

@@ -1,77 +1,27 @@
-import client from "../../../api/client";
+import { getInitialNotifications } from "../mock/notificationsData";
+import { mockStore } from "../../../mocks/appMockStore";
 
-const messageFor = (error, fallback) => error?.response?.data?.message || error?.message || fallback;
+const notificationSeed = getInitialNotifications().map((item) => ({ ...item }));
+const notifications = () => mockStore.get("notifications", notificationSeed);
+const saveNotifications = (value) => mockStore.set("notifications", value);
+const clone = (value) => JSON.parse(JSON.stringify(value));
 
-export const getAllNotifications = async () => {
-  const { data } = await client.get("/notifications");
-  if (!data?.success) throw new Error(data?.message || "Unable to load notifications.");
-  return data.notifications || [];
-};
+const filtered = (filters = {}) => notifications().filter((item) => {
+  const { category = "all", type = "all", status = "all", archived = false, search = "" } = filters;
+  if (Boolean(item.isArchived) !== Boolean(archived)) return false;
+  if (category !== "all" && item.category !== category) return false;
+  if (type !== "all" && item.type !== type) return false;
+  if (status === "read" && !item.isRead) return false;
+  if (status === "unread" && item.isRead) return false;
+  return !search.trim() || `${item.title} ${item.message}`.toLowerCase().includes(search.trim().toLowerCase());
+});
 
-export const getUnreadCount = async () => {
-  const { data } = await client.get("/notifications/unread-count");
-  if (!data?.success) throw new Error(data?.message || "Unable to load unread notification count.");
-  return data.count || 0;
-};
-
-export const getRecentUnread = async (limit = 5) => {
-  const { data } = await client.get("/notifications/recent-unread", { params: { limit } });
-  if (!data?.success) throw new Error(data?.message || "Unable to load recent notifications.");
-  return data.notifications || [];
-};
-
-export const markAsRead = async (id) => {
-  const { data } = await client.patch(`/notifications/${id}/read`);
-  if (!data?.success) throw new Error(data?.message || "Unable to mark notification as read.");
-  return data;
-};
-
-export const markAllAsRead = async () => {
-  const { data } = await client.patch("/notifications/read-all");
-  if (!data?.success) throw new Error(data?.message || "Unable to mark notifications as read.");
-  return data;
-};
-
-export const archiveNotification = async (id) => {
-  const { data } = await client.patch(`/notifications/${id}/archive`);
-  if (!data?.success) throw new Error(data?.message || "Unable to archive notification.");
-  return data;
-};
-
-export const addNotification = async (notification) => {
-  try {
-    const { data } = await client.post("/notifications", notification);
-    if (!data?.success) throw new Error(data?.message || "Unable to create notification.");
-    return data.notification;
-  } catch (error) {
-    throw new Error(messageFor(error, "Unable to create notification."));
-  }
-};
-
-export const deleteNotification = async (id) => {
-  const { data } = await client.delete(`/notifications/${id}`);
-  if (!data?.success) throw new Error(data?.message || "Unable to delete notification.");
-  return data;
-};
-
-export const filterNotifications = async ({
-  category = "all",
-  type = "all",
-  status = "all",
-  archived = false,
-  search = "",
-} = {}) => {
-  const params = {};
-  if (category !== "all") params.category = category;
-  if (type !== "all") params.type = type;
-  if (status !== "all") params.status = status;
-  if (search.trim()) params.search = search;
-  if (archived) params.archived = 1;
-  try {
-    const { data } = await client.get("/notifications", { params });
-    if (!data?.success) throw new Error(data?.message || "Unable to filter notifications.");
-    return data.notifications || [];
-  } catch (error) {
-    throw new Error(messageFor(error, "Unable to filter notifications."));
-  }
-};
+export const getAllNotifications = async () => clone(filtered());
+export const getUnreadCount = async () => filtered().filter((item) => !item.isRead).length;
+export const getRecentUnread = async (limit = 5) => clone(filtered().filter((item) => !item.isRead).slice(0, limit));
+export const markAsRead = async (id) => { const item = notifications().find((value) => value.id === id); if (!item) throw new Error("Notification not found."); const updated = { ...item, isRead: true }; saveNotifications(notifications().map((value) => value.id === id ? updated : value)); return { success: true, notification: clone(updated) }; };
+export const markAllAsRead = async () => { saveNotifications(notifications().map((item) => item.isArchived ? item : { ...item, isRead: true })); return { success: true }; };
+export const archiveNotification = async (id) => { const item = notifications().find((value) => value.id === id); if (!item) throw new Error("Notification not found."); saveNotifications(notifications().map((value) => value.id === id ? { ...value, isArchived: true } : value)); return { success: true }; };
+export const addNotification = async (notification) => { const item = { id: `notification-${Date.now()}`, isRead: false, isArchived: false, createdAt: new Date().toISOString(), type: "info", category: "system", ...notification }; saveNotifications([item, ...notifications()]); return clone(item); };
+export const deleteNotification = async (id) => { saveNotifications(notifications().filter((item) => item.id !== id)); return { success: true }; };
+export const filterNotifications = async (filters = {}) => clone(filtered(filters));

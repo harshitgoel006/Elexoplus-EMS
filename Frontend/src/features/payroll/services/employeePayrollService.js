@@ -1,6 +1,5 @@
-import { employeePayrollMock } from "../mock/employeePayrollMock";
-import { createPayrollView, createMockResponse } from "../utils/payroll";
+import payrollService from "./payrollService";
 
 export const employeePayrollService = {
-  getPayroll: () => createMockResponse(createPayrollView(employeePayrollMock)),
+  getPayroll: async () => (await payrollService.getPayrollDashboardData("SALES_EXECUTIVE")).personalPayroll,
 };

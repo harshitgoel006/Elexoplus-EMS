@@ -1,24 +1,31 @@
-import { hrPayrollMock } from "../mock/hrPayrollMock";
-import { createMockResponse, createPayrollView } from "../utils/payroll";
+import payrollService from "./payrollService";
 
 export const hrPayrollService = {
-  getPayroll: () => createMockResponse(hrPayrollMock),
-  getPersonalPayroll: () => createMockResponse(createPayrollView(hrPayrollMock.personalPayroll)),
-  freezeAttendance: () => createMockResponse({ success: true, attendanceFrozen: true }, 300),
-  submitToFinance: () => createMockResponse({ success: true, nextStage: 3, attendanceFrozen: true }, 300),
-  updateSalaryHold: (employees, payload) => createMockResponse(
-    employees.map((employee) => (
-      (employee.id || employee.empId) === payload.empId
-        ? {
-            ...employee,
-            isHold: payload.isHold,
-            status: payload.isHold ? "On Hold" : "Verified",
-            holdReason: payload.reason,
-            holdNotes: payload.notes,
-            holdUpdatedAt: payload.updatedAt,
-          }
-        : employee
-    )),
-    200,
-  ),
+  getPayroll: async () => {
+    const data = await payrollService.getPayrollDashboardData("HR");
+    return {
+      statsData: data.metrics,
+      stages: data.stages,
+      exceptions: data.exceptions,
+      complianceData: data.complianceData,
+      directoryEmployees: data.directory,
+      departmentLiability: data.departmentLiability,
+      joiningExitData: data.joiningExitData,
+      currentStage: data.currentStage,
+      isAttendanceFrozen: data.isAttendanceFrozen,
+    };
+  },
+  getPersonalPayroll: async () => (await payrollService.getPayrollDashboardData("HR")).personalPayroll,
+  freezeAttendance: async () => {
+    await payrollService.freezeAttendance();
+    return { success: true, attendanceFrozen: true };
+  },
+  submitToFinance: async () => {
+    await payrollService.submitToFinance();
+    return { success: true, nextStage: 3, attendanceFrozen: true };
+  },
+  updateSalaryHold: async (_employees, payload) => {
+    await payrollService.updateSalaryHold(payload);
+    return (await payrollService.getPayrollDashboardData("HR")).directory;
+  },
 };

@@ -1,160 +1,195 @@
 import { BadgeCheck, CalendarCheck, ClipboardList, Clock3, Tags, XCircle } from "lucide-react";
-import client from "../../../api/client.js";
+import { leaveBalanceData, leaveHistory } from "../mock/employeeLeaveData.js";
+import {
+  LeaveApplicationsData,
+  companyHolidaysData,
+  initialLeavePolicies,
+  teamLeaveCalendarEvents,
+} from "../mock/leaveData.js";
+import { mockStore } from "../../../mocks/appMockStore";
 
-const asBoolean = (value) => value === true || value === 1 || value === "1";
-
-const mapPolicy = (policy) => ({
-    id: policy.leave_policy_id,
-    leaveTypeName: policy.leave_policy_name,
-    leaveTypeCode: policy.leave_policy_code,
-    annualQuota: Number(policy.annual_quota),
-    accrualFrequency: policy.accrual_frequency,
-    accrualMethod: policy.accrual_method,
-    carryForwardAllowed: asBoolean(policy.carry_forward_allowed),
-    maxCarryForwardDays: Number(policy.max_carry_forward_days),
-    allowHalfDay: asBoolean(policy.allow_half_day),
-    requiresDocument: asBoolean(policy.requires_document),
-    isPaid: asBoolean(policy.is_paid),
-    description: policy.description || "",
-    status: policy.status,
-});
-
-const requestToHistory = (request, policies) => ({
-    id: request.leave_request_id,
-    leaveType: policies[request.leave_policy_id]?.leaveTypeCode || "Leave",
-    fromDate: request.start_date,
-    toDate: request.end_date,
-    date: request.applied_at,
-    duration: request.day_type === "Full Day" ? "Full Day" : "0.5 Day",
-    dayType: request.day_type,
-    reason: request.reason,
-    emergencyContact: request.emergency_contact,
-    status: request.status,
-    document: "Not Attached",
-});
-
-export const getLeaveDashboard = async ({ role } = {}) => {
-    const year = new Date().getFullYear();
-    const [requestsResponse, balancesResponse, policiesResponse, holidaysResponse, pendingResponse, calendarResponse, managementResponse] = await Promise.all([
-        client.get("/leave/requests"), client.get(`/leave/balances?year=${year}`), client.get("/leave/policies"),
-        client.get(`/leave/holidays?year=${year}`), client.get("/leave/requests/pending-approvals"),
-        client.get(`/leave/requests/calendar?from=${year}-01-01&to=${year}-12-31`),
-        client.get("/leave/requests/management"),
-    ]);
-    const policies = (policiesResponse.data.policies || []).map(mapPolicy);
-    const policyById = Object.fromEntries(policies.map((policy) => [policy.id, policy]));
-    const history = (requestsResponse.data.requests || []).map((request) => requestToHistory(request, policyById));
-    const balances = (balancesResponse.data.balances || []).map((balance) => ({ title: policyById[balance.leave_policy_id]?.leaveTypeName || "Leave", available: Number(balance.remaining_days), total: Number(balance.allocated_days), color: "bg-primary" }));
-    const actionableLeaves = (pendingResponse.data.pending || []).map((approval) => ({
-        id: approval.leave_request_id, employeeName: approval.employee_name, employeeId: approval.employee_code,
-        designation: approval.designation_name || "Employee", initials: (approval.employee_name || "?").split(" ").map((part) => part[0]).join("").slice(0, 2),
-        leaveType: approval.leave_policy_code, fromDate: approval.start_date, toDate: approval.end_date,
-        duration: approval.day_type === "Full Day" ? "Full Day" : "0.5 Day", reason: approval.reason,
-        appliedOn: approval.applied_at, approvedBy: "Pending your decision", approverRole: approval.approval_level,
-        status: approval.request_status, dayType: approval.day_type, canDecide: true,
-    }));
-    const teamHistory = (managementResponse.data.requests || []).map((request) => ({
-        id: request.leave_request_id, employeeName: request.employee_name || request.employee_code || "Employee", employeeId: request.employee_code || "",
-        designation: request.designation_name || "Employee", initials: (request.employee_name || request.employee_code || "?").split(" ").map((part) => part[0]).join("").slice(0, 2),
-        leaveType: request.leave_policy_code || "Leave", fromDate: request.start_date, toDate: request.end_date,
-        duration: request.day_type === "Full Day" ? "Full Day" : "0.5 Day", reason: request.reason,
-        appliedOn: request.applied_at, approvedBy: request.status === "Approved" ? "Approved" : request.status === "Rejected" ? "Rejected" : "Awaiting approval",
-        approverRole: request.pending_approval_level ? `Awaiting ${request.pending_approval_level}` : "", status: request.status, dayType: request.day_type, canDecide: false,
-    }));
-    // Calendar is the role-scoped history; the approval endpoint contributes
-    // the subset that the current user may actually decide on.
-    const teamById = new Map(teamHistory.map((request) => [request.id, request]));
-    actionableLeaves.forEach((request) => teamById.set(request.id, { ...teamById.get(request.id), ...request }));
-    const teamLeaves = [...teamById.values()];
-    const managementRecords = ["ADMIN", "HR", "ASM"].includes(String(role || "").toUpperCase()) ? teamLeaves : history;
-    return {
-        managementCards: [
-            { icon: ClipboardList, title: "Waiting on You", value: teamLeaves.length, description: "Approval queue" },
-            { icon: CalendarCheck, title: "Approved Requests", value: managementRecords.filter((item) => item.status === "Approved").length, description: "Visible approved requests" },
-            { icon: Tags, title: "Leave Types", value: policies.length, description: "Active leave policies" },
-        ],
-        summaryCards: [
-            { title: "Available Leaves", value: balances.reduce((total, item) => total + item.available, 0), description: "Total remaining leaves", icon: CalendarCheck },
-            { title: "Pending Requests", value: history.filter((item) => ["Pending", "Under Review"].includes(item.status)).length, description: "Your open requests", icon: Clock3 },
-            { title: "Approved This Year", value: history.filter((item) => item.status === "Approved").length, description: "Your approved requests", icon: BadgeCheck },
-            { title: "Rejected", value: history.filter((item) => item.status === "Rejected").length, description: "Your rejected requests", icon: XCircle },
-        ],
-        leaveBalanceData: balances, leavePolicies: policies, teamLeaves, leaveHistory: history,
-        calendarData: {
-            events: (calendarResponse.data.requests || []).map((request) => ({ id: request.leave_request_id, employeeName: request.employee_name || request.employee_code || "Employee", leaveType: request.leave_policy_code || "Leave", startDate: request.start_date, endDate: request.end_date, status: request.status })),
-            holidays: (holidaysResponse.data.holidays || []).map((holiday) => ({ id: holiday.holiday_id, title: holiday.title, date: holiday.holiday_date })),
-        },
-    };
+// Frontend-first leave store. It intentionally persists only for the running
+// browser session; no leave request, document or policy is sent to the API.
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const normalizedRole = (role) => String(role || "").trim().toUpperCase();
+const policyDefaults = {
+  accrualFrequency: "Yearly",
+  accrualMethod: "Upfront",
+  carryForwardAllowed: false,
+  maxCarryForwardDays: 0,
+  allowHalfDay: true,
+  requiresDocument: false,
+  isPaid: true,
+  status: "Active",
 };
 
-export const submitLeaveApplication = async ({ leaveType, dayType, fromDate, toDate, reason, emergencyContact, document }) => {
-    if (!leaveType?.id) throw new Error("Select a valid leave policy.");
-    const { data } = await client.post("/leave/requests", { leave_policy_id: leaveType.id, start_date: fromDate, end_date: toDate, day_type: dayType, reason, emergency_contact: emergencyContact, has_document: Boolean(document) });
-    if (!data.success) throw new Error(data.message || "Unable to submit leave request.");
-    if (document) {
-        const form = new FormData(); form.append("document", document); form.append("document_type", "Supporting Document");
-        try {
-            const upload = await client.post(`/leave/requests/${data.request.leave_request_id}/documents`, form, { headers: { "Content-Type": "multipart/form-data" } });
-            if (!upload.data?.success) throw new Error(upload.data?.message || "Supporting document could not be uploaded.");
-        } catch (error) {
-            await client.post(`/leave/requests/${data.request.leave_request_id}/cancel`);
-            throw error;
-        }
-    }
-    return data.request;
+const policySeed = initialLeavePolicies.map((policy) => ({ ...policyDefaults, ...policy }));
+const requestSeed = [
+  ...LeaveApplicationsData.map((request) => ({ ...request, document: "Not Attached" })),
+  ...leaveHistory.map((request) => ({
+    ...request,
+    employeeName: "Nisha Barnwal",
+    designation: "Sales Executive",
+    initials: "NB",
+    leaveType: request.leaveType.includes("(")
+      ? request.leaveType.match(/\(([^)]+)\)/)?.[1] || request.leaveType
+      : request.leaveType,
+    appliedOn: request.date,
+    approvedBy: request.status === "Approved" ? "Gaurav Kumar" : "Awaiting approval",
+    approverRole: "ASM",
+    canDecide: false,
+  })),
+];
+
+const policies = () => mockStore.get("leave:policies", policySeed);
+const requests = () => mockStore.get("leave:requests", requestSeed);
+const savePolicies = (value) => mockStore.set("leave:policies", value);
+const saveRequests = (value) => mockStore.set("leave:requests", value);
+
+const policyById = (id) => policies().find((policy) => String(policy.id) === String(id));
+const policyForRequest = (request) => policyById(request.leavePolicyId)
+  || policies().find((policy) => policy.leaveTypeCode === request.leaveType);
+const daysBetween = (fromDate, toDate, dayType) => {
+  if (dayType !== "Full Day") return 0.5;
+  const start = new Date(`${fromDate}T00:00:00`);
+  const end = new Date(`${toDate}T00:00:00`);
+  return Math.max(1, Math.floor((end - start) / 86400000) + 1);
+};
+const formatDuration = (days, dayType) => dayType === "Full Day"
+  ? `${days} ${days === 1 ? "Day" : "Days"}`
+  : "0.5 Day";
+const isOwnRequest = (request, userId) => String(request.employeeId) === String(userId);
+const canActOn = (request, role, asmId) => {
+  if (request.status !== "Pending" || request.canDecide === false) return false;
+  if (role === "ADMIN" || role === "HR") return true;
+  return role === "ASM" && String(request.asmId || "") === String(asmId || "EMP003");
+};
+const visibleManagementRequests = (role, asmId) => {
+  if (role === "ADMIN" || role === "HR") return requests();
+  if (role === "ASM") return requests().filter((request) => String(request.asmId || "") === String(asmId || "EMP003"));
+  return [];
+};
+const requestView = (request, role, asmId) => ({
+  ...clone(request),
+  canDecide: canActOn(request, role, asmId),
+  approverRole: request.status === "Pending" ? request.approverRole || "Pending approval" : request.approverRole,
+});
+
+export const getLeaveDashboard = async ({ role, userId, asmId } = {}) => {
+  const currentRole = normalizedRole(role);
+  const ownRequests = requests().filter((request) => isOwnRequest(request, userId));
+  const management = visibleManagementRequests(currentRole, asmId)
+    .map((request) => requestView(request, currentRole, asmId));
+  const actionable = management.filter((request) => request.canDecide);
+  const balances = clone(leaveBalanceData);
+  const calendarEvents = [...teamLeaveCalendarEvents, ...requests()]
+    .filter((request) => request.status !== "Cancelled")
+    .map((request) => ({
+      id: request.id,
+      employeeName: request.employeeName || "Employee",
+      leaveType: request.leaveType,
+      startDate: request.startDate || request.fromDate,
+      endDate: request.endDate || request.toDate,
+      status: request.status,
+    }));
+
+  return {
+    managementCards: [
+      { icon: ClipboardList, title: "Waiting on You", value: actionable.length, description: "Approval queue" },
+      { icon: CalendarCheck, title: "Approved Requests", value: management.filter((request) => request.status === "Approved").length, description: "Visible approved requests" },
+      { icon: Tags, title: "Leave Types", value: policies().length, description: "Active leave policies" },
+    ],
+    summaryCards: [
+      { title: "Available Leaves", value: balances.reduce((total, item) => total + Number(item.available || 0), 0), description: "Total remaining leaves", icon: CalendarCheck },
+      { title: "Pending Requests", value: ownRequests.filter((request) => request.status === "Pending").length, description: "Your open requests", icon: Clock3 },
+      { title: "Approved This Year", value: ownRequests.filter((request) => request.status === "Approved").length, description: "Your approved requests", icon: BadgeCheck },
+      { title: "Rejected", value: ownRequests.filter((request) => request.status === "Rejected").length, description: "Your rejected requests", icon: XCircle },
+    ],
+    leaveBalanceData: balances,
+    leavePolicies: clone(policies()),
+    teamLeaves: management,
+    leaveHistory: ownRequests.map((request) => clone(request)),
+    calendarData: { events: calendarEvents, holidays: clone(companyHolidaysData) },
+  };
+};
+
+export const submitLeaveApplication = async ({ leaveType, dayType, fromDate, toDate, reason, emergencyContact, document, employee = {} }) => {
+  const policy = policyForRequest({ leavePolicyId: leaveType?.id, leaveType: leaveType?.value });
+  if (!policy) throw new Error("Select a valid leave policy.");
+  if (!fromDate || !toDate || new Date(toDate) < new Date(fromDate)) throw new Error("Enter a valid leave date range.");
+  const days = daysBetween(fromDate, toDate, dayType);
+  const employeeId = employee.employeeId || employee.employeeCode || employee.id || "EMP004";
+  const newRequest = {
+    id: `LV-${Date.now()}`, employeeId, employeeName: employee.name || "Nisha Barnwal",
+    designation: employee.designation || employee.role || "Employee",
+    initials: (employee.name || "Nisha Barnwal").split(" ").map((part) => part[0]).join("").slice(0, 2),
+    asmId: employee.asmId || "EMP003", leavePolicyId: policy.id, leaveType: policy.leaveTypeCode,
+    fromDate, toDate, duration: formatDuration(days, dayType), dayType, reason: String(reason || "").trim(),
+    emergencyContact: String(emergencyContact || "").trim(), document: document?.name || "Not Attached",
+    documents: document ? [{ id: `DOC-${Date.now()}`, name: document.name, type: "Supporting Document" }] : [],
+    appliedOn: new Date().toISOString().slice(0, 10), approvedBy: "Awaiting approval", approverRole: "ASM", status: "Pending",
+  };
+  saveRequests([newRequest, ...requests()]);
+  return clone(newRequest);
 };
 
 export const updateLeaveApplicationStatus = async (leaveId, status) => {
-    const { data } = await client.post(`/leave/requests/${leaveId}/decision`, { decision: status === "Approved" ? "Approved" : "Rejected" });
-    if (!data.success) throw new Error(data.message || "Unable to update leave request.");
-    return data;
+  const nextStatus = status === "Approved" ? "Approved" : status === "Rejected" ? "Rejected" : null;
+  if (!nextStatus) throw new Error("Choose Approved or Rejected.");
+  const existing = requests().find((request) => String(request.id) === String(leaveId));
+  if (!existing) throw new Error("Leave request was not found.");
+  if (existing.status !== "Pending") throw new Error("Only pending leave requests can be decided.");
+  const updated = { ...existing, status: nextStatus, approvedBy: nextStatus, canDecide: false };
+  saveRequests(requests().map((request) => String(request.id) === String(leaveId) ? updated : request));
+  return { success: true, request: clone(updated) };
 };
 
 export const cancelLeaveApplication = async (leaveId) => {
-    const { data } = await client.post(`/leave/requests/${leaveId}/cancel`);
-    if (!data.success) throw new Error(data.message || "Unable to cancel leave request.");
-    return data;
+  const existing = requests().find((request) => String(request.id) === String(leaveId));
+  if (!existing) throw new Error("Leave request was not found.");
+  if (existing.status !== "Pending") throw new Error("Only pending leave requests can be cancelled.");
+  const updated = { ...existing, status: "Cancelled", canDecide: false };
+  saveRequests(requests().map((request) => String(request.id) === String(leaveId) ? updated : request));
+  return { success: true, request: clone(updated) };
 };
 
 export const getLeaveRequestDocuments = async (leaveId) => {
-    const { data } = await client.get(`/leave/requests/${leaveId}/documents`);
-    if (!data.success) throw new Error(data.message || "Unable to load leave documents.");
-    return (data.documents || []).map((document) => ({ id: document.document_id, name: document.file_name, type: document.document_type }));
+  const request = requests().find((item) => String(item.id) === String(leaveId));
+  if (!request) throw new Error("Leave request was not found.");
+  if (request.documents?.length) return clone(request.documents);
+  return request.document && request.document !== "Not Attached" ? [{ id: `DOC-${request.id}`, name: request.document, type: "Supporting Document" }] : [];
 };
 
 export const openLeaveDocument = async (documentId) => {
-    const response = await client.get(`/leave/documents/${documentId}/download`, { responseType: "blob" });
-    const url = URL.createObjectURL(response.data);
-    window.open(url, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  const document = requests().flatMap((request) => request.documents || []).find((item) => String(item.id) === String(documentId));
+  const name = document?.name || "leave-supporting-document.txt";
+  const url = URL.createObjectURL(new Blob([`Demo document: ${name}`], { type: "text/plain" }));
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
-export const getLeavePolicies = async () => {
-    const { data } = await client.get("/leave/policies?all=1");
-    return (data.policies || []).map(mapPolicy);
-};
-
-const policyPayload = (policy) => ({
-    leave_policy_name: policy.leaveTypeName.trim(), leave_policy_code: policy.leaveTypeCode.trim().toUpperCase(), annual_quota: Number(policy.annualQuota),
-    accrual_frequency: policy.accrualFrequency, accrual_method: policy.accrualMethod, carry_forward_allowed: Boolean(policy.carryForwardAllowed),
-    max_carry_forward_days: policy.carryForwardAllowed ? Number(policy.maxCarryForwardDays) : 0, allow_half_day: Boolean(policy.allowHalfDay),
-    requires_document: Boolean(policy.requiresDocument), is_paid: Boolean(policy.isPaid), description: policy.description?.trim() || null,
-});
+export const getLeavePolicies = async () => clone(policies());
 
 export const updateLeavePolicy = async (policy) => {
-    const { data } = await client.put(`/leave/policies/${policy.id}`, policyPayload(policy));
-    if (!data.success) throw new Error(data.message || "Unable to update policy.");
-    return mapPolicy(data.policy);
+  const index = policies().findIndex((item) => String(item.id) === String(policy.id));
+  if (index === -1) throw new Error("Leave policy was not found.");
+  const updated = { ...policies()[index], ...policyDefaults, ...policy, leaveTypeCode: String(policy.leaveTypeCode || "").trim().toUpperCase() };
+  if (!updated.leaveTypeName?.trim() || !updated.leaveTypeCode) throw new Error("Leave type name and code are required.");
+  savePolicies(policies().map((item, itemIndex) => itemIndex === index ? updated : item));
+  return clone(updated);
 };
 
 export const createLeavePolicy = async (policy) => {
-    const { data } = await client.post("/leave/policies", policyPayload(policy));
-    if (!data.success) throw new Error(data.message || "Unable to create policy.");
-    return mapPolicy(data.policy);
+  const code = String(policy.leaveTypeCode || "").trim().toUpperCase();
+  if (!policy.leaveTypeName?.trim() || !code) throw new Error("Leave type name and code are required.");
+  if (policies().some((item) => item.leaveTypeCode === code)) throw new Error("A leave policy with this code already exists.");
+  const created = { ...policyDefaults, ...policy, id: `POL-${Date.now()}`, leaveTypeCode: code, status: "Active" };
+  savePolicies([...policies(), created]);
+  return clone(created);
 };
 
 export const deleteLeavePolicy = async (policyId) => {
-    const { data } = await client.delete(`/leave/policies/${policyId}`);
-    if (!data.success) throw new Error(data.message || "Unable to deactivate policy.");
-    return data;
+  if (!policies().some((policy) => String(policy.id) === String(policyId))) throw new Error("Leave policy was not found.");
+  savePolicies(policies().filter((policy) => String(policy.id) !== String(policyId)));
+  return { success: true };
 };
