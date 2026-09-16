@@ -36,6 +36,8 @@ export const useLeaveManagement = () => {
 
     const userId = normalizeEmployeeId(
         loggedInUser?.employeeCode
+        ?? loggedInUser?.employeeId
+        ?? loggedInUser?.id
     );
     const asmId =
         loggedInUser?.asmId ?? DEFAULT_LEAVE_USER.asmId;

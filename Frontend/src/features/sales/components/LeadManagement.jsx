@@ -61,7 +61,7 @@ export default function LeadManagement({ role = "Admin" }) { // taking role from
   useEffect(() => {
     let active = true;
     Promise.all([salesApi.listLeads(), salesApi.targets()])
-      .then(([leadData, targetData]) => { if (active) { setLeads(leadData.map((lead) => ({ ...lead, nextFollowUp: lead.next_follow_up_date || "" }))); setTargets(targetData); } })
+      .then(([leadData, targetData]) => { if (active) { setLeads(leadData.map(normalizeLead)); setTargets(targetData); } })
       .catch((error) => { if (active) { setLeads([]); setApiError(error.response?.data?.message || "Unable to load sales leads."); } })
       .finally(() => { if (active) setIsLoadingLeads(false); });
     return () => { active = false; };
@@ -201,12 +201,16 @@ export default function LeadManagement({ role = "Admin" }) { // taking role from
   function normalizeLead(lead) {
     return {
     ...lead,
+    id: lead.id || lead.lead_id || `lead-${Date.now()}`,
     name: lead.name || lead.lead_name || "Unnamed lead",
     company: lead.company || lead.company_name || "—",
-    type: lead.type || lead.segment,
+    type: lead.type || lead.segment || "B2B",
     phone: lead.phone || lead.phone_number || "",
     email: lead.email || "",
     source: lead.source || lead.lead_source || "Website",
+    region: lead.region || "Unassigned",
+    assignedTo: lead.assignedTo || lead.assigned_to || lead.assignedSeName || "Unassigned",
+    status: lead.status || lead.current_status || "New",
     value: formatCurrency(lead.value ?? lead.estimated_value),
     nextFollowUp: lead.nextFollowUp || lead.next_follow_up_date || "",
     activities: lead.activities || [],
